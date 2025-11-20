@@ -1,11 +1,10 @@
-use std::rc::Rc;
-use std::cell::RefCell;
+use std::{rc::Rc, cell::RefCell};
 use tao::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
-use wry::{http::Request, WebViewBuilder, WebView};
+use wry::{http::Request, WebViewBuilder};
 use serde_json::Value;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,6 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 <div id="log">Press the buttons below.</div>
 <button id="btn1">Send hello</button>
 <button id="btn2">Request app.version</button>
+<button id="btn3">Request system.info</button>
 <script>
   window.fromNative = (msg) => {
     const log = document.getElementById('log');
@@ -34,12 +34,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   document.getElementById('btn2').onclick = () => {
     window.ipc.postMessage(JSON.stringify({ type: 'request', method: 'app.version', id: 1 }));
   };
+  document.getElementById('btn3').onclick = () => {
+    window.ipc.postMessage(JSON.stringify({ type: 'request', method: 'system.info', id: 2 }));
+  };
 </script>
 </body>
 </html>"#;
 
-    // Use Rc + RefCell to allow the webview to be cloned in the IPC closure
-    let webview_rc: Rc<RefCell<Option<WebView>>> = Rc::new(RefCell::new(None));
+    // Use Rc + RefCell to allow webview access inside closures
+    let webview_rc: Rc<RefCell<Option<wry::WebView>>> = Rc::new(RefCell::new(None));
     let webview_clone = Rc::clone(&webview_rc);
 
     let webview = WebViewBuilder::new()
@@ -55,14 +58,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("log: {:?}", obj.get("msg"));
                         }
                         Some("request") => {
-                            if obj.get("method") == Some(&Value::String("app.version".into())) {
-                                println!("App version requested, replied with 0.1.0");
+                            if let Some(method) = obj.get("method").and_then(|v| v.as_str()) {
+                                let response_js = match method {
+                                    "app.version" => r#"window.fromNative({ version: "0.1.0" });"#.to_string(),
+                                    "system.info" => {
+                                        // Example system info
+                                        let info = format!(
+    r#"window.fromNative({{ os: "{os}", arch: "{arch}" }});"#,
+    os = std::env::consts::OS,
+    arch = std::env::consts::ARCH
+);
 
-                                // Reply to JS
+                                        info
+                                    }
+                                    _ => "".to_string(),
+                                };
+
                                 if let Some(webview_ref) = webview_clone.borrow().as_ref() {
-                                    let js = r#"window.fromNative({ version: "0.1.0" });"#;
-                                    let _ = webview_ref.evaluate_script(js);
+                                    let _ = webview_ref.evaluate_script(&response_js);
                                 }
+
+                                println!("Handled request: {}", method);
                             }
                         }
                         _ => {}
@@ -72,10 +88,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .build(&window)?;
 
-    // Store the webview in Rc<RefCell> for IPC use
     *webview_rc.borrow_mut() = Some(webview);
 
-    // Run the event loop
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
         if let Event::WindowEvent { event, .. } = event {
