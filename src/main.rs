@@ -1,3 +1,5 @@
+use std::rc::Rc;
+use std::cell::RefCell;
 use tao::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -36,8 +38,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 </body>
 </html>"#;
 
-    // Build webview
-    let _webview: WebView = WebViewBuilder::new()
+    // Use Rc + RefCell to allow the webview to be cloned in the IPC closure
+    let webview_rc: Rc<RefCell<Option<WebView>>> = Rc::new(RefCell::new(None));
+    let webview_clone = Rc::clone(&webview_rc);
+
+    let webview = WebViewBuilder::new()
         .with_html(html)
         .with_ipc_handler(move |request: Request<String>| {
             let payload = request.body();
@@ -46,14 +51,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(value) = serde_json::from_str::<Value>(payload) {
                 if let Some(obj) = value.as_object() {
                     match obj.get("type").and_then(|v| v.as_str()) {
-                        Some("request") => {
-                            if obj.get("method") == Some(&Value::String("app.version".into())) {
-                                println!("App version requested, would reply with 0.1.0");
-                                // To actually reply, you need a WebView clone outside this closure
-                            }
-                        }
                         Some("log") => {
                             println!("log: {:?}", obj.get("msg"));
+                        }
+                        Some("request") => {
+                            if obj.get("method") == Some(&Value::String("app.version".into())) {
+                                println!("App version requested, replied with 0.1.0");
+
+                                // Reply to JS
+                                if let Some(webview_ref) = webview_clone.borrow().as_ref() {
+                                    let js = r#"window.fromNative({ version: "0.1.0" });"#;
+                                    let _ = webview_ref.evaluate_script(js);
+                                }
+                            }
                         }
                         _ => {}
                     }
@@ -62,7 +72,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .build(&window)?;
 
-    // Run event loop
+    // Store the webview in Rc<RefCell> for IPC use
+    *webview_rc.borrow_mut() = Some(webview);
+
+    // Run the event loop
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
         if let Event::WindowEvent { event, .. } = event {
