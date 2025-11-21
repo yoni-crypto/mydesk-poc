@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>MyDesk POC</title>
+  <style>
+    body { font-family: sans-serif; display:flex; flex-direction:column; gap:12px; padding:20px; }
+    button { width: 150px; padding: 8px; }
+    #log { border: 1px solid #ccc; padding: 10px; min-height: 40px; }
+  </style>
+</head>
+<body>
+  <h2>MyDesk POC</h2>
+  <div id="log">Press the buttons below.</div>
+
+  <button id="btn1">Send hello</button>
+  <button id="btn2">Request app.version</button>
+  <button id="btn3">Get OS</button>
+  <button id="btn4">Get Arch</button>
+  <button id="btn5">Get Time</button>
+  <button id="btn6">Read File</button>
+  <button id="btn7">Write File</button>
+
+  <script>
+    window.fromNative = (msg) => {
+      const log = document.getElementById('log');
+      log.innerText = 'Native replied: ' + JSON.stringify(msg);
+    };
+
+    document.getElementById('btn1').onclick = () => {
+      window.ipc.postMessage(JSON.stringify({ type: 'log', msg: 'hello from web' }));
+    };
+    document.getElementById('btn2').onclick = () => {
+      window.ipc.postMessage(JSON.stringify({ type: 'request', method: 'app.version', id: 1 }));
+    };
+    document.getElementById('btn3').onclick = () => {
+      window.ipc.postMessage(JSON.stringify({ type: 'request', method: 'get.os', id: 2 }));
+    };
+    document.getElementById('btn4').onclick = () => {
+      window.ipc.postMessage(JSON.stringify({ type: 'request', method: 'get.arch', id: 3 }));
+    };
+    document.getElementById('btn5').onclick = () => {
+      window.ipc.postMessage(JSON.stringify({ type: 'request', method: 'get.time', id: 4 }));
+    };
+    document.getElementById('btn6').onclick = () => {
+      window.ipc.postMessage(JSON.stringify({ 
+        type: 'request', 
+        method: 'fs.readFile', 
+        id: 5,
+        path: 'test.txt'
+      }));
+    };
+    document.getElementById('btn7').onclick = () => {
+      window.ipc.postMessage(JSON.stringify({ 
+        type: 'request', 
+        method: 'fs.writeFile', 
+        id: 6,
+        path: 'test.txt',
+        content: 'Hello from JS!'
+      }));
+    };
+  </script>
+</body>
+</html>
