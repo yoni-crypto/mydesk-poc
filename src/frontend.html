@@ -4,61 +4,167 @@
   <meta charset="utf-8">
   <title>MyDesk POC</title>
   <style>
-    body { font-family: sans-serif; display:flex; flex-direction:column; gap:12px; padding:20px; }
-    button { width: 150px; padding: 8px; }
-    #log { border: 1px solid #ccc; padding: 10px; min-height: 40px; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 24px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h2 { margin: 0 0 8px 0; }
+    .section { 
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 16px;
+      background: #f9f9f9;
+    }
+    .section h3 {
+      margin: 0 0 12px 0;
+      font-size: 14px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .buttons {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    button { 
+      padding: 10px 16px;
+      border: none;
+      border-radius: 6px;
+      background: #007bff;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    button:active {
+      transform: scale(0.98);
+    }
+    #log { 
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 12px;
+      min-height: 100px;
+      max-height: 300px;
+      overflow-y: auto;
+      background: white;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .success { color: #28a745; }
+    .error { color: #dc3545; }
+    .info { color: #17a2b8; }
   </style>
 </head>
 <body>
-  <h2>MyDesk POC</h2>
-  <div id="log">Press the buttons below.</div>
+  <h2>🚀 MyDesk POC</h2>
+  <p>Testing async commands with proper error handling</p>
 
-  <button id="btn1">Send hello</button>
-  <button id="btn2">Request app.version</button>
-  <button id="btn3">Get OS</button>
-  <button id="btn4">Get Arch</button>
-  <button id="btn5">Get Time</button>
-  <button id="btn6">Read File</button>
-  <button id="btn7">Write File</button>
+  <div class="section">
+    <h3>System Info</h3>
+    <div class="buttons">
+      <button onclick="getVersion()">Get Version</button>
+      <button onclick="getSystemInfo()">Get System Info</button>
+      <button onclick="getTime()">Get Time</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>File System</h3>
+    <div class="buttons">
+      <button onclick="readFile()">Read test.txt</button>
+      <button onclick="writeFile()">Write test.txt</button>
+      <button onclick="checkExists()">Check Exists</button>
+      <button onclick="deleteFile()">Delete temp.txt</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Response Log</h3>
+    <div id="log">Waiting for commands...</div>
+  </div>
 
   <script>
-    window.fromNative = (msg) => {
-      const log = document.getElementById('log');
-      log.innerText = 'Native replied: ' + JSON.stringify(msg);
+    let requestId = 1;
+
+    function log(message, type = 'info') {
+      const logEl = document.getElementById('log');
+      const timestamp = new Date().toLocaleTimeString();
+      const className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+      logEl.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // Handle responses from native
+    window.fromNative = (response) => {
+      console.log('Response:', response);
+      
+      if (response.success) {
+        log(`✓ Success (id: ${response.id}): ${JSON.stringify(response.data)}`, 'success');
+      } else {
+        log(`✗ Error (id: ${response.id}): ${response.error.code} - ${response.error.message}`, 'error');
+      }
     };
 
-    document.getElementById('btn1').onclick = () => {
-      window.ipc.postMessage(JSON.stringify({ type: 'log', msg: 'hello from web' }));
-    };
-    document.getElementById('btn2').onclick = () => {
-      window.ipc.postMessage(JSON.stringify({ type: 'request', method: 'app.version', id: 1 }));
-    };
-    document.getElementById('btn3').onclick = () => {
-      window.ipc.postMessage(JSON.stringify({ type: 'request', method: 'get.os', id: 2 }));
-    };
-    document.getElementById('btn4').onclick = () => {
-      window.ipc.postMessage(JSON.stringify({ type: 'request', method: 'get.arch', id: 3 }));
-    };
-    document.getElementById('btn5').onclick = () => {
-      window.ipc.postMessage(JSON.stringify({ type: 'request', method: 'get.time', id: 4 }));
-    };
-    document.getElementById('btn6').onclick = () => {
-      window.ipc.postMessage(JSON.stringify({ 
-        type: 'request', 
-        method: 'fs.readFile', 
-        id: 5,
-        path: 'test.txt'
-      }));
-    };
-    document.getElementById('btn7').onclick = () => {
-      window.ipc.postMessage(JSON.stringify({ 
-        type: 'request', 
-        method: 'fs.writeFile', 
-        id: 6,
-        path: 'test.txt',
-        content: 'Hello from JS!'
-      }));
-    };
+    function sendCommand(method, params = {}) {
+      const id = `req_${requestId++}`;
+      const request = {
+        id,
+        method,
+        params
+      };
+      
+      log(`→ Sending: ${method} (id: ${id})`, 'info');
+      window.ipc.postMessage(JSON.stringify(request));
+    }
+
+    // System commands
+    function getVersion() {
+      sendCommand('app.version');
+    }
+
+    function getSystemInfo() {
+      sendCommand('system.info');
+    }
+
+    function getTime() {
+      sendCommand('system.time');
+    }
+
+    // File system commands
+    function readFile() {
+      sendCommand('fs.read', { path: 'test.txt' });
+    }
+
+    function writeFile() {
+      const content = `Hello from MyDesk! Written at ${new Date().toISOString()}`;
+      sendCommand('fs.write', { path: 'test.txt', content });
+    }
+
+    function checkExists() {
+      sendCommand('fs.exists', { path: 'test.txt' });
+    }
+
+    function deleteFile() {
+      sendCommand('fs.delete', { path: 'temp.txt' });
+    }
+
+    // Test error handling
+    function testError() {
+      sendCommand('fs.read', { path: '../etc/passwd' }); // Should fail with path traversal error
+    }
+
+    log('MyDesk POC initialized. Click buttons to test commands.', 'success');
   </script>
 </body>
 </html>
