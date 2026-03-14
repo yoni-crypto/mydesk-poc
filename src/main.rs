@@ -3,6 +3,7 @@ mod error;
 mod ipc;
 mod utils;
 
+use std::sync::mpsc;
 use std::{cell::RefCell, rc::Rc};
 use tao::{
     event::{Event, WindowEvent},
@@ -13,8 +14,7 @@ use wry::{http::Request, WebView, WebViewBuilder};
 
 use crate::ipc::IpcRequest;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::new();
 
     let window = WindowBuilder::new()
@@ -23,6 +23,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build(&event_loop)?;
 
     let html = include_str!("frontend.html");
+
+    // Channel for sending JS back to the main thread
+    let (tx, rx) = mpsc::channel::<String>();
 
     // WebView storage
     let webview_rc: Rc<RefCell<Option<WebView>>> = Rc::new(RefCell::new(None));
@@ -34,44 +37,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let webview = WebViewBuilder::new()
         .with_html(html)
-        // Initialize IPC and response handler
         .with_initialization_script(r#"
             window.ipc = {
                 postMessage: (msg) => window.external.invoke(msg)
             };
-            
-            // Response handler for async commands
             window.__mydeskHandleResponse = (response) => {
-                if (window.fromNative) {
-                    window.fromNative(response);
-                }
+                if (window.fromNative) window.fromNative(response);
             };
         "#)
         .with_ipc_handler(move |req: Request<String>| {
             let body = req.body();
             println!("IPC received: {}", body);
 
-            // Parse IPC request
             match serde_json::from_str::<IpcRequest>(body) {
                 Ok(ipc_req) => {
-                    println!("Command: {} (id: {})", ipc_req.method, ipc_req.id);
-                    
                     if let Some(cmd) = commands_clone.get(&ipc_req.method) {
-                        cmd(ipc_req, Rc::clone(&webview_clone));
+                        cmd(ipc_req, tx.clone());
                     } else {
-                        println!("Unknown command: {}", ipc_req.method);
                         let response = ipc::IpcResponse::error(
                             ipc_req.id,
                             error::MyDeskError::UnknownCommand(ipc_req.method.clone()),
                         );
-                        if let Some(webview) = webview_clone.borrow().as_ref() {
-                            let _ = webview.evaluate_script(&response.to_js_call());
-                        }
+                        let _ = tx.send(response.to_js_call());
                     }
                 }
-                Err(e) => {
-                    eprintln!("Failed to parse IPC request: {}", e);
-                }
+                Err(e) => eprintln!("Failed to parse IPC request: {}", e),
             }
         })
         .build(&window)?;
@@ -80,6 +70,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
+
+        // Drain pending JS calls from background threads
+        while let Ok(js) = rx.try_recv() {
+            if let Some(webview) = webview_clone.borrow().as_ref() {
+                let _ = webview.evaluate_script(&js);
+            }
+        }
 
         if let Event::WindowEvent { event, .. } = event {
             if let WindowEvent::CloseRequested = event {

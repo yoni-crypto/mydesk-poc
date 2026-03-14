@@ -1,14 +1,12 @@
-use serde_json::{json, Value};
-use std::cell::RefCell;
+use serde_json::json;
 use std::collections::HashMap;
-use std::rc::Rc;
-use wry::WebView;
+use std::sync::mpsc::Sender;
 
-use crate::error::{MyDeskError, Result};
+use crate::error::MyDeskError;
 use crate::ipc::{IpcRequest, IpcResponse};
 use crate::utils;
 
-pub type CommandFn = Box<dyn Fn(IpcRequest, Rc<RefCell<Option<WebView>>>) + 'static>;
+pub type CommandFn = Box<dyn Fn(IpcRequest, Sender<String>) + 'static>;
 
 pub fn get_commands() -> HashMap<String, CommandFn> {
     let mut commands: HashMap<String, CommandFn> = HashMap::new();
@@ -16,63 +14,61 @@ pub fn get_commands() -> HashMap<String, CommandFn> {
     // app.version
     commands.insert(
         "app.version".to_string(),
-        Box::new(|req, webview_rc| {
+        Box::new(|req, tx| {
             let response = IpcResponse::success(req.id, json!({ "version": "0.1.0" }));
-            send_response(&webview_rc, response);
+            let _ = tx.send(response.to_js_call());
         }),
     );
 
     // system.info
     commands.insert(
         "system.info".to_string(),
-        Box::new(|req, webview_rc| {
+        Box::new(|req, tx| {
             let info = json!({
                 "platform": utils::get_os(),
                 "arch": utils::get_arch(),
-                "version": "0.1.0"
             });
-            let response = IpcResponse::success(req.id, info);
-            send_response(&webview_rc, response);
+            let _ = tx.send(IpcResponse::success(req.id, info).to_js_call());
         }),
     );
 
     // system.time
     commands.insert(
         "system.time".to_string(),
-        Box::new(|req, webview_rc| {
-            let time = utils::get_time();
-            let response = IpcResponse::success(req.id, json!({ "time": time }));
-            send_response(&webview_rc, response);
+        Box::new(|req, tx| {
+            let _ = tx.send(
+                IpcResponse::success(req.id, json!({ "time": utils::get_time() })).to_js_call(),
+            );
         }),
     );
 
     // fs.read
     commands.insert(
         "fs.read".to_string(),
-        Box::new(|req, webview_rc| {
+        Box::new(|req, tx| {
             let path = match req.params.get("path").and_then(|v| v.as_str()) {
                 Some(p) => p.to_string(),
                 None => {
-                    let response = IpcResponse::error(
-                        req.id,
-                        MyDeskError::InvalidRequest("Missing 'path' parameter".to_string()),
+                    let _ = tx.send(
+                        IpcResponse::error(
+                            req.id,
+                            MyDeskError::InvalidRequest("Missing 'path' parameter".to_string()),
+                        )
+                        .to_js_call(),
                     );
-                    send_response(&webview_rc, response);
                     return;
                 }
             };
 
-            let webview_clone = Rc::clone(&webview_rc);
-            let request_id = req.id.clone();
-
-            // Spawn async task
-            tokio::spawn(async move {
-                let result = utils::read_file(&path).await;
+            std::thread::spawn(move || {
+                let result = tokio::runtime::Runtime::new()
+                    .unwrap()
+                    .block_on(utils::read_file(&path));
                 let response = match result {
-                    Ok(content) => IpcResponse::success(request_id, json!({ "content": content })),
-                    Err(err) => IpcResponse::error(request_id, err),
+                    Ok(content) => IpcResponse::success(req.id, json!({ "content": content })),
+                    Err(err) => IpcResponse::error(req.id, err),
                 };
-                send_response(&webview_clone, response);
+                let _ = tx.send(response.to_js_call());
             });
         }),
     );
@@ -80,15 +76,17 @@ pub fn get_commands() -> HashMap<String, CommandFn> {
     // fs.write
     commands.insert(
         "fs.write".to_string(),
-        Box::new(|req, webview_rc| {
+        Box::new(|req, tx| {
             let path = match req.params.get("path").and_then(|v| v.as_str()) {
                 Some(p) => p.to_string(),
                 None => {
-                    let response = IpcResponse::error(
-                        req.id,
-                        MyDeskError::InvalidRequest("Missing 'path' parameter".to_string()),
+                    let _ = tx.send(
+                        IpcResponse::error(
+                            req.id,
+                            MyDeskError::InvalidRequest("Missing 'path' parameter".to_string()),
+                        )
+                        .to_js_call(),
                     );
-                    send_response(&webview_rc, response);
                     return;
                 }
             };
@@ -96,26 +94,26 @@ pub fn get_commands() -> HashMap<String, CommandFn> {
             let content = match req.params.get("content").and_then(|v| v.as_str()) {
                 Some(c) => c.to_string(),
                 None => {
-                    let response = IpcResponse::error(
-                        req.id,
-                        MyDeskError::InvalidRequest("Missing 'content' parameter".to_string()),
+                    let _ = tx.send(
+                        IpcResponse::error(
+                            req.id,
+                            MyDeskError::InvalidRequest("Missing 'content' parameter".to_string()),
+                        )
+                        .to_js_call(),
                     );
-                    send_response(&webview_rc, response);
                     return;
                 }
             };
 
-            let webview_clone = Rc::clone(&webview_rc);
-            let request_id = req.id.clone();
-
-            // Spawn async task
-            tokio::spawn(async move {
-                let result = utils::write_file(&path, &content).await;
+            std::thread::spawn(move || {
+                let result = tokio::runtime::Runtime::new()
+                    .unwrap()
+                    .block_on(utils::write_file(&path, &content));
                 let response = match result {
-                    Ok(_) => IpcResponse::success(request_id, json!({ "success": true })),
-                    Err(err) => IpcResponse::error(request_id, err),
+                    Ok(_) => IpcResponse::success(req.id, json!({ "success": true })),
+                    Err(err) => IpcResponse::error(req.id, err),
                 };
-                send_response(&webview_clone, response);
+                let _ = tx.send(response.to_js_call());
             });
         }),
     );
@@ -123,29 +121,30 @@ pub fn get_commands() -> HashMap<String, CommandFn> {
     // fs.exists
     commands.insert(
         "fs.exists".to_string(),
-        Box::new(|req, webview_rc| {
+        Box::new(|req, tx| {
             let path = match req.params.get("path").and_then(|v| v.as_str()) {
                 Some(p) => p.to_string(),
                 None => {
-                    let response = IpcResponse::error(
-                        req.id,
-                        MyDeskError::InvalidRequest("Missing 'path' parameter".to_string()),
+                    let _ = tx.send(
+                        IpcResponse::error(
+                            req.id,
+                            MyDeskError::InvalidRequest("Missing 'path' parameter".to_string()),
+                        )
+                        .to_js_call(),
                     );
-                    send_response(&webview_rc, response);
                     return;
                 }
             };
 
-            let webview_clone = Rc::clone(&webview_rc);
-            let request_id = req.id.clone();
-
-            tokio::spawn(async move {
-                let result = utils::file_exists(&path).await;
+            std::thread::spawn(move || {
+                let result = tokio::runtime::Runtime::new()
+                    .unwrap()
+                    .block_on(utils::file_exists(&path));
                 let response = match result {
-                    Ok(exists) => IpcResponse::success(request_id, json!({ "exists": exists })),
-                    Err(err) => IpcResponse::error(request_id, err),
+                    Ok(exists) => IpcResponse::success(req.id, json!({ "exists": exists })),
+                    Err(err) => IpcResponse::error(req.id, err),
                 };
-                send_response(&webview_clone, response);
+                let _ = tx.send(response.to_js_call());
             });
         }),
     );
@@ -153,39 +152,33 @@ pub fn get_commands() -> HashMap<String, CommandFn> {
     // fs.delete
     commands.insert(
         "fs.delete".to_string(),
-        Box::new(|req, webview_rc| {
+        Box::new(|req, tx| {
             let path = match req.params.get("path").and_then(|v| v.as_str()) {
                 Some(p) => p.to_string(),
                 None => {
-                    let response = IpcResponse::error(
-                        req.id,
-                        MyDeskError::InvalidRequest("Missing 'path' parameter".to_string()),
+                    let _ = tx.send(
+                        IpcResponse::error(
+                            req.id,
+                            MyDeskError::InvalidRequest("Missing 'path' parameter".to_string()),
+                        )
+                        .to_js_call(),
                     );
-                    send_response(&webview_rc, response);
                     return;
                 }
             };
 
-            let webview_clone = Rc::clone(&webview_rc);
-            let request_id = req.id.clone();
-
-            tokio::spawn(async move {
-                let result = utils::delete_file(&path).await;
+            std::thread::spawn(move || {
+                let result = tokio::runtime::Runtime::new()
+                    .unwrap()
+                    .block_on(utils::delete_file(&path));
                 let response = match result {
-                    Ok(_) => IpcResponse::success(request_id, json!({ "success": true })),
-                    Err(err) => IpcResponse::error(request_id, err),
+                    Ok(_) => IpcResponse::success(req.id, json!({ "success": true })),
+                    Err(err) => IpcResponse::error(req.id, err),
                 };
-                send_response(&webview_clone, response);
+                let _ = tx.send(response.to_js_call());
             });
         }),
     );
 
     commands
-}
-
-fn send_response(webview_rc: &Rc<RefCell<Option<WebView>>>, response: IpcResponse) {
-    if let Some(webview) = webview_rc.borrow().as_ref() {
-        let js = response.to_js_call();
-        let _ = webview.evaluate_script(&js);
-    }
 }

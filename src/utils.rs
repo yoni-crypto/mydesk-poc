@@ -1,5 +1,5 @@
 use chrono::prelude::*;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tokio::fs;
 
 use crate::error::{MyDeskError, Result};

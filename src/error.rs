@@ -42,6 +42,7 @@ impl From<std::io::Error> for MyDeskError {
 pub type Result<T> = std::result::Result<T, MyDeskError>;
 
 #[derive(Serialize)]
+#[derive(Debug)]
 pub struct ErrorResponse {
     pub code: String,
     pub message: String,
