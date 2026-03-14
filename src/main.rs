@@ -36,6 +36,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let commands_clone = Rc::clone(&commands);
 
     let webview = WebViewBuilder::new()
+        .with_bounds(wry::Rect {
+            position: tao::dpi::LogicalPosition::new(0, 0).into(),
+            size: tao::dpi::LogicalSize::new(900, 640).into(),
+        })
         .with_html(html)
         .with_initialization_script(r#"
             window.ipc = {
@@ -64,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Err(e) => eprintln!("Failed to parse IPC request: {}", e),
             }
         })
-        .build(&window)?;
+        .build_as_child(&window)?;
 
     *webview_rc.borrow_mut() = Some(webview);
 
