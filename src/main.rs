@@ -17,13 +17,14 @@ use crate::ipc::IpcRequest;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::new();
 
+    let html = include_str!("frontend.html");
+    let url = std::env::var("MYDESK_URL").ok();
+    let title = std::env::var("MYDESK_TITLE").unwrap_or_else(|_| "MyDesk".to_string());
+
     let window = WindowBuilder::new()
-        .with_title("MyDesk POC")
+        .with_title(&title)
         .with_inner_size(tao::dpi::LogicalSize::new(900.0, 640.0))
         .build(&event_loop)?;
-
-    let html = include_str!("frontend.html");
-
     // Channel for sending JS back to the main thread
     let (tx, rx) = mpsc::channel::<String>();
 
@@ -39,8 +40,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_bounds(wry::Rect {
             position: tao::dpi::LogicalPosition::new(0, 0).into(),
             size: tao::dpi::LogicalSize::new(900, 640).into(),
-        })
-        .with_html(html)
+        });
+
+    let webview = if let Some(ref u) = url {
+        webview.with_url(u)
+    } else {
+        webview.with_html(html)
+    };
+
+    let webview = webview
         .with_initialization_script(r#"
             window.ipc = {
                 postMessage: (msg) => window.external.invoke(msg)
