@@ -49,7 +49,7 @@ export function waitForServer(url: string, timeout = 60000): Promise<void> {
 
 export function getRuntimeBinary(): string {
   // In dev: use the compiled binary from the rust project
-  const devBinary = path.join(__dirname, '../../target/debug/mydesk-poc')
+  const devBinary = path.join(__dirname, '../../../target/debug/mydesk-poc')
   if (fs.existsSync(devBinary)) return devBinary
 
   // In production: binary is bundled next to the CLI

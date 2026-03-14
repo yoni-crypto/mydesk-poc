@@ -1,1 +1,15 @@
 /target
+
+# Planning/docs files
+CONTRIBUTING.md
+IMPLEMENTATION.md
+LAUNCH.md
+PROGRESS.md
+PROJECT_SUMMARY.md
+QUICKSTART.md
+QUICK_REFERENCE.md
+ROADMAP.md
+WEEK1_SUMMARY.md
+async-implementation
+docs/
+test.txt

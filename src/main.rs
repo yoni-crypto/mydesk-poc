@@ -36,10 +36,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let commands = Rc::new(commands_async::get_commands());
     let commands_clone = Rc::clone(&commands);
 
+    let initial_size = window.inner_size();
     let webview = WebViewBuilder::new()
         .with_bounds(wry::Rect {
-            position: tao::dpi::LogicalPosition::new(0, 0).into(),
-            size: tao::dpi::LogicalSize::new(900, 640).into(),
+            position: tao::dpi::PhysicalPosition::new(0, 0).into(),
+            size: initial_size.into(),
         });
 
     let webview = if let Some(ref u) = url {
@@ -91,8 +92,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if let Event::WindowEvent { event, .. } = event {
-            if let WindowEvent::CloseRequested = event {
-                *control_flow = ControlFlow::Exit;
+            match event {
+                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                WindowEvent::Resized(size) => {
+                    if let Some(webview) = webview_clone.borrow().as_ref() {
+                        let _ = webview.set_bounds(wry::Rect {
+                            position: tao::dpi::PhysicalPosition::new(0, 0).into(),
+                            size: size.into(),
+                        });
+                    }
+                }
+                _ => {}
             }
         }
     });
